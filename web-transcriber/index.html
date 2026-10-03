@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sonixly Transcriber</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.05); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
+        input[type="file"]::file-selector-button { display: none; }
+        
+        .sonic-card {
+            position: relative;
+            border-radius: 24px;
+            border-top-right-radius: 4px;
+            border-bottom-left-radius: 4px;
+        }
+        .sonic-card::before {
+            content: ''; position: absolute; top: -20px; right: -25px; width: 50px; height: 60px;
+            background: transparent; border-bottom-left-radius: 100%;
+            box-shadow: -15px 15px 0 0 rgba(30, 58, 138, 0.5); transform: rotate(-15deg); pointer-events: none;
+        }
+        .sonic-card::after {
+            content: ''; position: absolute; bottom: -20px; left: -25px; width: 50px; height: 60px;
+            background: transparent; border-top-right-radius: 100%;
+            box-shadow: 15px -15px 0 0 rgba(220, 38, 38, 0.5); transform: rotate(-15deg); pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 min-h-screen flex justify-center items-center p-4 font-sans text-slate-200 overflow-hidden">
+
+    <div id="bg-canvas" class="fixed top-0 left-0 w-full h-full -z-10 pointer-events-none"></div>
+
+    <audio id="bgMusic" loop src="/Sonic5.mp3" preload="auto"></audio>
+
+    <svg class="absolute h-0 w-0" aria-hidden="true" focusable="false">
+        <defs>
+            <filter id="threshold" x="-20%" y="-20%" width="140%" height="140%">
+                <feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 255 -140" />
+            </filter>
+        </defs>
+    </svg>
+
+    <!-- Widened Card: max-w-2xl -->
+    <div class="sonic-card bg-slate-900/80 backdrop-blur-xl border-t-2 border-l-2 border-blue-500 border-b-2 border-r-2 border-red-500 p-8 shadow-[0_0_40px_rgba(5,75,206,0.3)] w-full max-w-2xl flex flex-col gap-6 z-10 relative transition-all duration-500 min-h-[450px]">
+        
+        <div class="relative h-28 w-full mb-2 flex-shrink-0">
+            <div class="flex items-center justify-center w-full h-full overflow-visible" style="filter: url(#threshold);">
+                <span id="text1" class="absolute inline-block select-none text-center text-5xl sm:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-200 tracking-wide pb-4 w-full"></span>
+                <span id="text2" class="absolute inline-block select-none text-center text-5xl sm:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-200 tracking-wide pb-4 w-full"></span>
+            </div>
+            <p class="text-xs text-center text-blue-300 font-bold uppercase tracking-widest mt-[-15px]">Powered by RTX 4060</p>
+        </div>
+        
+        <!-- INPUT STATE -->
+        <div id="inputControls" class="flex flex-col gap-5 w-full transition-opacity duration-300">
+            <label id="uploadZone" class="relative flex flex-col items-center justify-center w-full h-32 border-2 border-blue-500/50 border-dashed rounded-xl cursor-pointer bg-blue-500/5 hover:bg-blue-500/10 transition duration-300 transform -skew-x-2">
+                <div class="flex flex-col items-center justify-center pt-5 pb-6 transform skew-x-2">
+                    <svg class="w-8 h-8 mb-3 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    <p class="mb-2 text-sm text-slate-300 text-center px-4" id="uploadText"><span class="font-bold text-blue-400">Gotta go fast.</span> Upload audio here.</p>
+                    <p class="text-xs text-slate-500">MP3, WAV, M4A</p>
+                </div>
+                <input type="file" id="audioFile" accept="audio/*" class="hidden" />
+            </label>
+
+            <div class="hidden bg-blue-950/50 border-l-4 border-blue-500 p-4 rounded-r-xl flex justify-between items-center transform -skew-x-2" id="infoPanel">
+                <div class="flex flex-col transform skew-x-2">
+                    <span class="text-xs text-blue-400 uppercase font-bold tracking-wider">Audio Length</span>
+                    <span class="text-lg font-black text-white" id="audioLength">0:00</span>
+                </div>
+                <div class="flex flex-col text-right transform skew-x-2">
+                    <span class="text-xs text-red-400 uppercase font-bold tracking-wider">Est. Time</span>
+                    <span class="text-lg font-black text-white" id="estTime">0:00</span>
+                </div>
+            </div>
+
+            <select id="languageSelect" class="bg-slate-900 border border-blue-800/50 text-slate-200 text-sm font-bold rounded-xl focus:ring-blue-500 focus:border-blue-500 block w-full p-3 outline-none transition transform -skew-x-2 cursor-pointer">
+                <option value="darija">Moroccan Darija (Optimized)</option>
+                <option value="auto">Auto-Detect Language</option>
+                <option value="ar">Standard Arabic</option>
+                <option value="en">English</option>
+                <option value="fr">French</option>
+                <option value="es">Spanish</option>
+            </select>
+
+            <button id="transcribeBtn" class="w-full text-white bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 font-black text-lg px-5 py-3.5 text-center rounded-xl transition-all duration-300 shadow-[0_0_20px_rgba(226,24,56,0.4)] hover:shadow-[0_0_25px_rgba(226,24,56,0.7)] hover:-translate-y-1 active:translate-y-0 transform -skew-x-6 uppercase tracking-wider">
+                <span class="block transform skew-x-6">Start Transcription</span>
+            </button>
+        </div>
+
+        <!-- 3D PROCESSING STATE -->
+        <div id="canvas-container" class="hidden w-full flex flex-col justify-center items-center py-4 min-h-[250px] relative">
+            <button id="musicToggleBtn" class="absolute top-0 right-0 bg-slate-800 border border-blue-500 text-yellow-400 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-2 hover:bg-slate-700 transition z-20">
+                <span id="musicIcon">🔊</span> Music: ON
+            </button>
+            <div class="mt-4 text-blue-400 text-sm font-black uppercase tracking-widest animate-pulse z-10" id="statusText">Processing...</div>
+        </div>
+
+        <!-- RESULT STATE -->
+        <div id="resultControls" class="hidden flex-col gap-6 w-full">
+            <textarea id="resultText" class="w-full h-64 p-5 text-base font-medium text-slate-200 bg-slate-950/80 border-t-2 border-b-2 border-blue-500 rounded-xl focus:ring-yellow-400 focus:border-yellow-400 outline-none resize-none shadow-inner" readonly></textarea>
+            
+            <!-- Redesigned Buttons with gaps, icons, and hover animations -->
+            <div class="flex gap-4 justify-between mt-2 transform -skew-x-2">
+                <button id="returnBtn" class="flex-1 bg-slate-800 border border-slate-600 hover:bg-slate-700 hover:border-slate-500 text-slate-200 font-bold py-3 px-2 rounded-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-lg flex items-center justify-center gap-2 transform skew-x-2">
+                    <span>🔙</span> <span class="hidden sm:inline">Return</span>
+                </button>
+                <button id="copyBtn" class="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-3 px-2 rounded-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_0_15px_rgba(59,130,246,0.5)] flex items-center justify-center gap-2 transform skew-x-2">
+                    <span>📋</span> <span class="hidden sm:inline">Copy Text</span>
+                </button>
+                <button id="pdfBtn" class="flex-1 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-bold py-3 px-2 rounded-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_0_15px_rgba(239,68,68,0.5)] flex items-center justify-center gap-2 transform skew-x-2">
+                    <span>📄</span> <span class="hidden sm:inline">Save PDF</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    // ==========================================
+    // AUDIO LOGIC (Global Autoplay & Toggle)
+    // ==========================================
+    const bgMusic = document.getElementById('bgMusic');
+    const musicToggleBtn = document.getElementById('musicToggleBtn');
+    let isMusicEnabled = true;
+    let hasInteracted = false;
+    bgMusic.volume = 0.3;
+
+    // Start music on first interaction anywhere on the site
+    document.body.addEventListener('click', () => {
+        if (!hasInteracted && isMusicEnabled) {
+            bgMusic.play().catch(e => console.log("Autoplay blocked:", e));
+            hasInteracted = true;
+        }
+    }, { once: true });
+
+    musicToggleBtn.addEventListener('click', () => {
+        isMusicEnabled = !isMusicEnabled;
+        if (isMusicEnabled) {
+            musicToggleBtn.innerHTML = `<span id="musicIcon">🔊</span> Music: ON`;
+            bgMusic.play();
+        } else {
+            musicToggleBtn.innerHTML = `<span id="musicIcon">🔇</span> Music: OFF`;
+            bgMusic.pause();
+        }
+    });
+
+    // ==========================================
+    // GOOEY TEXT
+    // ==========================================
+    const gooeyTexts = [
+        "Sonixly AI", "Fast.", "Accurate.", "Transcribe.", "Gotta go fast.", 
+        "Powered by Whisper", "English", "French", "Arabic", "Spanish", 
+        "Auto-Detect", "And more...", "Audio to Text", "High Accuracy", 
+        "User-Friendly", "Fast Results", "Seamless Experience"
+    ];
+    let textIndex = gooeyTexts.length - 1, textTime = new Date(), morph = 0, cooldown = 1.0;
+    const text1 = document.getElementById("text1"), text2 = document.getElementById("text2");
+    text1.textContent = gooeyTexts[textIndex % gooeyTexts.length];
+    text2.textContent = gooeyTexts[(textIndex + 1) % gooeyTexts.length];
+
+    function setMorph(fraction) {
+        text2.style.filter = `blur(${Math.min(8 / fraction - 8, 100)}px)`; text2.style.opacity = `${Math.pow(fraction, 0.4) * 100}%`;
+        fraction = 1 - fraction;
+        text1.style.filter = `blur(${Math.min(8 / fraction - 8, 100)}px)`; text1.style.opacity = `${Math.pow(fraction, 0.4) * 100}%`;
+    }
+
+    function animateGooey() {
+        requestAnimationFrame(animateGooey);
+        const newTime = new Date(), dt = (newTime.getTime() - textTime.getTime()) / 1000;
+        textTime = newTime; cooldown -= dt;
+        if (cooldown <= 0) {
+            if (cooldown + dt > 0) {
+                textIndex = (textIndex + 1) % gooeyTexts.length;
+                text1.textContent = gooeyTexts[textIndex % gooeyTexts.length];
+                text2.textContent = gooeyTexts[(textIndex + 1) % gooeyTexts.length];
+            }
+            morph -= cooldown; cooldown = 0;
+            let fraction = morph / 1.25;
+            if (fraction > 1) { cooldown = 1.0; fraction = 1; }
+            setMorph(fraction);
+        } else {
+            morph = 0; text2.style.filter = ""; text2.style.opacity = "100%"; text1.style.filter = ""; text1.style.opacity = "0%";
+        }
+    }
+    animateGooey(); 
+
+    // ==========================================
+    // FILE HANDLING
+    // ==========================================
+    const fileInput = document.getElementById('audioFile');
+    
+    fileInput.addEventListener('change', function() {
+        if (this.files.length > 0) {
+            document.getElementById('uploadText').innerHTML = `<span class="font-black text-yellow-400 break-all">${this.files[0].name}</span>`;
+            const audioObj = new Audio(URL.createObjectURL(this.files[0]));
+            audioObj.onloadedmetadata = function() {
+                const dur = audioObj.duration;
+                document.getElementById('audioLength').innerText = `${Math.floor(dur / 60)}m ${Math.floor(dur % 60).toString().padStart(2, '0')}s`;
+                const est = Math.max(dur / 25, 1);
+                document.getElementById('estTime').innerText = `${Math.floor(est / 60)}m ${Math.floor(est % 60).toString().padStart(2, '0')}s`;
+                document.getElementById('infoPanel').classList.remove('hidden');
+                document.getElementById('infoPanel').classList.add('flex');
+            };
+        }
+    });
+
+    // ==========================================
+    // 3D SCENES (Background & Center)
+    // ==========================================
+    const bgScene = new THREE.Scene();
+    const bgCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const bgRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    bgRenderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('bg-canvas').appendChild(bgRenderer.domElement);
+
+    const ringGeo = new THREE.TorusGeometry(3, 0.2, 16, 50);
+    const ringMat = new THREE.MeshStandardMaterial({ color: 0xFFD700, metalness: 0.8, roughness: 0.2 });
+    bgScene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const bgLight = new THREE.DirectionalLight(0xffffff, 1);
+    bgLight.position.set(5, 5, 5);
+    bgScene.add(bgLight);
+
+    const bgRings = [];
+    // More rings scattered across a wider space
+    const positions = [ 
+        [-15, 8, -12], [18, -6, -15], [-10, -12, -18], [15, 12, -20],
+        [-25, 0, -25], [25, 5, -25], [-5, 18, -15], [5, -18, -15],
+        [-20, 15, -30], [20, -15, -30], [-30, -5, -20], [30, 10, -20]
+    ];
+    positions.forEach((pos) => {
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.position.set(...pos);
+        ring.rotation.x = Math.random() * Math.PI;
+        ring.rotation.y = Math.random() * Math.PI;
+        bgRings.push({ mesh: ring, speedX: 0.01 + (Math.random()*0.02), speedY: 0.01 + (Math.random()*0.02) });
+        bgScene.add(ring);
+    });
+    bgCamera.position.z = 10;
+
+    window.addEventListener('resize', () => {
+        bgRenderer.setSize(window.innerWidth, window.innerHeight);
+        bgCamera.aspect = window.innerWidth / window.innerHeight;
+        bgCamera.updateProjectionMatrix();
+    });
+
+    const blobScene = new THREE.Scene();
+    const blobCamera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+    const blobRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    blobRenderer.setSize(250, 250);
+    blobRenderer.domElement.style.position = "absolute";
+    blobRenderer.domElement.style.zIndex = "1";
+    document.getElementById('canvas-container').insertBefore(blobRenderer.domElement, document.getElementById('canvas-container').firstChild);
+
+    const vShader = `uniform float u_intensity; uniform float u_time; varying vec2 vUv; varying float vDisplacement; vec4 permute(vec4 x) { return mod(((x*34.0)+1.0)*x, 289.0); } vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; } vec3 fade(vec3 t) { return t*t*t*(t*(t*6.0-15.0)+10.0); } float cnoise(vec3 P) { vec3 Pi0 = floor(P); vec3 Pi1 = Pi0 + vec3(1.0); Pi0 = mod(Pi0, 289.0); Pi1 = mod(Pi1, 289.0); vec3 Pf0 = fract(P); vec3 Pf1 = Pf0 - vec3(1.0); vec4 ix = vec4(Pi0.x, Pi1.x, Pi0.x, Pi1.x); vec4 iy = vec4(Pi0.yy, Pi1.yy); vec4 iz0 = Pi0.zzzz; vec4 iz1 = Pi1.zzzz; vec4 ixy = permute(permute(ix) + iy); vec4 ixy0 = permute(ixy + iz0); vec4 ixy1 = permute(ixy + iz1); vec4 gx0 = ixy0 / 7.0; vec4 gy0 = fract(floor(gx0) / 7.0) - 0.5; gx0 = fract(gx0); vec4 gz0 = vec4(0.5) - abs(gx0) - abs(gy0); vec4 sz0 = step(gz0, vec4(0.0)); gx0 -= sz0 * (step(0.0, gx0) - 0.5); gy0 -= sz0 * (step(0.0, gy0) - 0.5); vec4 gx1 = ixy1 / 7.0; vec4 gy1 = fract(floor(gx1) / 7.0) - 0.5; gx1 = fract(gx1); vec4 gz1 = vec4(0.5) - abs(gx1) - abs(gy1); vec4 sz1 = step(gz1, vec4(0.0)); gx1 -= sz1 * (step(0.0, gx1) - 0.5); gy1 -= sz1 * (step(0.0, gy1) - 0.5); vec3 g000 = vec3(gx0.x,gy0.x,gz0.x); vec3 g100 = vec3(gx0.y,gy0.y,gz0.y); vec3 g010 = vec3(gx0.z,gy0.z,gz0.z); vec3 g110 = vec3(gx0.w,gy0.w,gz0.w); vec3 g001 = vec3(gx1.x,gy1.x,gz1.x); vec3 g101 = vec3(gx1.y,gy1.y,gz1.y); vec3 g011 = vec3(gx1.z,gy1.z,gz1.z); vec3 g111 = vec3(gx1.w,gy1.w,gz1.w); vec4 norm0 = taylorInvSqrt(vec4(dot(g000, g000), dot(g010, g010), dot(g100, g100), dot(g110, g110))); g000 *= norm0.x; g010 *= norm0.y; g100 *= norm0.z; g110 *= norm0.w; vec4 norm1 = taylorInvSqrt(vec4(dot(g001, g001), dot(g011, g011), dot(g101, g101), dot(g111, g111))); g001 *= norm1.x; g011 *= norm1.y; g101 *= norm1.z; g111 *= norm1.w; float n000 = dot(g000, Pf0); float n100 = dot(g100, vec3(Pf1.x, Pf0.yz)); float n010 = dot(g010, vec3(Pf0.x, Pf1.y, Pf0.z)); float n110 = dot(g110, vec3(Pf1.xy, Pf0.z)); float n001 = dot(g001, vec3(Pf0.xy, Pf1.z)); float n101 = dot(g101, vec3(Pf1.x, Pf0.y, Pf1.z)); float n011 = dot(g011, vec3(Pf0.x, Pf1.yz)); float n111 = dot(g111, Pf1); vec3 fade_xyz = fade(Pf0); vec4 n_z = mix(vec4(n000, n100, n010, n110), vec4(n001, n101, n011, n111), fade_xyz.z); vec2 n_yz = mix(n_z.xy, n_z.zw, fade_xyz.y); float n_xyz = mix(n_yz.x, n_yz.y, fade_xyz.x); return 2.2 * n_xyz; } void main() { vUv = uv; vDisplacement = cnoise(position + vec3(4.0 * u_time)); vec3 newPosition = position + normal * (u_intensity * vDisplacement); vec4 modelPosition = modelMatrix * vec4(newPosition, 1.0); vec4 viewPosition = viewMatrix * modelPosition; gl_Position = projectionMatrix * viewPosition; }`;
+    const fShader = `uniform float u_intensity; uniform float u_time; uniform vec3 u_color; varying vec2 vUv; varying float vDisplacement; void main() { float distort = 2.0 * vDisplacement * u_intensity * sin(vUv.y * 10.0 + u_time); vec3 color = mix(u_color, vec3(0.0, 0.8, 1.0), distort); gl_FragColor = vec4(color, 1.0); }`;
+
+    const blobUniforms = { u_time: { value: 0 }, u_intensity: { value: 0.6 }, u_color: { value: new THREE.Color(0x0033CC) } };
+    const blobMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(2.5, 20), new THREE.ShaderMaterial({ vertexShader: vShader, fragmentShader: fShader, uniforms: blobUniforms }));
+    blobScene.add(blobMesh);
+    blobCamera.position.z = 7;
+
+    const canvasCont = document.getElementById('canvas-container');
+    let tX = 0, tY = 0;
+    canvasCont.addEventListener('mousemove', (e) => {
+        const rect = canvasCont.getBoundingClientRect();
+        tX = (((e.clientX - rect.left) / rect.width) * 2 - 1) * 1.5;
+        tY = (-((e.clientY - rect.top) / rect.height) * 2 + 1) * 1.5;
+        blobUniforms.u_intensity.value = 0.85; 
+    });
+    canvasCont.addEventListener('mouseleave', () => { tX = 0; tY = 0; blobUniforms.u_intensity.value = 0.6; });
+
+    let animId;
+    const clock = new THREE.Clock();
+
+    function animate() {
+        animId = requestAnimationFrame(animate);
+        const time = clock.getElapsedTime();
+        bgRings.forEach(r => { r.mesh.rotation.x += r.speedX; r.mesh.rotation.y += r.speedY; });
+        bgRenderer.render(bgScene, bgCamera);
+        blobUniforms.u_time.value = 0.8 * time; 
+        blobMesh.position.x += (tX - blobMesh.position.x) * 0.15;
+        blobMesh.position.y += (tY - blobMesh.position.y) * 0.15;
+        blobRenderer.render(blobScene, blobCamera);
+    }
+    animate();
+
+    // ==========================================
+    // API & UI LOGIC
+    // ==========================================
+    const transcribeBtn = document.getElementById('transcribeBtn');
+    const inputControls = document.getElementById('inputControls');
+    const resultControls = document.getElementById('resultControls');
+    const resultText = document.getElementById('resultText');
+
+    transcribeBtn.addEventListener('click', async () => {
+        if (fileInput.files.length === 0) return alert("Upload an audio file first.");
+        
+        inputControls.classList.add('hidden');
+        canvasCont.classList.remove('hidden'); 
+        canvasCont.classList.add('flex');
+        
+        const formData = new FormData();
+        formData.append("file", fileInput.files[0]);
+        const lang = document.getElementById('languageSelect').value;
+        formData.append("language", lang);
+
+        try {
+            const res = await fetch('/transcribe', { method: 'POST', body: formData });
+            const data = await res.json();
+            
+            canvasCont.classList.add('hidden'); 
+            canvasCont.classList.remove('flex');
+            // Music keeps playing automatically; no pause call here.
+
+            resultText.value = data.text;
+            resultControls.classList.remove('hidden');
+            resultControls.classList.add('flex');
+
+            if (['darija', 'ar'].includes(lang)) {
+                resultText.style.direction = 'rtl'; 
+                resultText.classList.add('text-right');
+            } else {
+                resultText.style.direction = 'ltr'; 
+                resultText.classList.remove('text-right');
+            }
+        } catch (e) {
+            alert("Error during transcription.");
+            inputControls.classList.remove('hidden');
+            canvasCont.classList.add('hidden'); 
+            canvasCont.classList.remove('flex');
+        } 
+    });
+
+    document.getElementById('copyBtn').addEventListener('click', () => {
+        navigator.clipboard.writeText(resultText.value);
+        const btn = document.getElementById('copyBtn');
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = `<span>✅</span> <span class="hidden sm:inline">Copied!</span>`;
+        setTimeout(() => { btn.innerHTML = originalHTML; }, 2000);
+    });
+
+    document.getElementById('returnBtn').addEventListener('click', () => {
+        resultControls.classList.add('hidden');
+        resultControls.classList.remove('flex');
+        
+        fileInput.value = "";
+        document.getElementById('uploadText').innerHTML = `<span class="font-bold text-blue-400">Gotta go fast.</span> Upload audio here.`;
+        document.getElementById('infoPanel').classList.add('hidden');
+        document.getElementById('infoPanel').classList.remove('flex');
+        
+        inputControls.classList.remove('hidden');
+    });
+
+    document.getElementById('pdfBtn').addEventListener('click', () => {
+        const content = document.createElement('div');
+        content.style.padding = '30px';
+        content.style.fontSize = '18px';
+        content.style.fontFamily = 'Arial, sans-serif';
+        content.style.lineHeight = '1.8';
+        content.style.direction = resultText.style.direction;
+        content.style.textAlign = resultText.style.textAlign;
+        content.style.color = '#000000'; // FIX: Explicit black text color to prevent pale rendering
+        content.innerText = resultText.value;
+
+        const opt = {
+            margin: 0.5,
+            filename: 'Sonixly_Transcript.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+        };
+        html2pdf().set(opt).from(content).save();
+    });
+</script>
+</body>
+</html>

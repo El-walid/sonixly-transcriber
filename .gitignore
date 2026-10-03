@@ -1,0 +1,15 @@
+# Python environment and cache
+whisper-env/
+__pycache__/
+*.pyc
+script-files/
+
+# Audio and temporary files
+*.mp3
+*.wav
+*.m4a
+*.txt
+temp_*
+
+# OS files
+.DS_Store
